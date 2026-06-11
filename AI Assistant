@@ -1,0 +1,134 @@
+import streamlit as st
+import google.generativeai as genai
+from dotenv import load_dotenv
+import os
+import tempfile
+import sounddevice as sd
+from scipy.io.wavfile import write
+import speech_recognition as sr
+import pyttsx3
+
+load_dotenv()
+
+api_key = os.getenv("GEMINI_API_KEY")
+
+if not api_key:
+    st.error("GEMINI_API_KEY not found in .env file")
+    st.stop()
+
+genai.configure(api_key=api_key)
+
+model = genai.GenerativeModel("gemini-2.5-flash")
+
+def speak(text):
+    try:
+        engine = pyttsx3.init()
+        engine.say(text)
+        engine.runAndWait()
+    except:
+        pass
+
+def record_audio(duration=5, sample_rate=44100):
+    st.info("Recording... Speak now")
+
+    recording = sd.rec(
+        int(duration * sample_rate),
+        samplerate=sample_rate,
+        channels=1,
+        dtype="int16"
+    )
+
+    sd.wait()
+
+    temp_file = tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=".wav"
+    )
+
+    write(temp_file.name, sample_rate, recording)
+
+    return temp_file.name
+
+def speech_to_text():
+    try:
+        audio_path = record_audio()
+
+        recognizer = sr.Recognizer()
+
+        with sr.AudioFile(audio_path) as source:
+            audio = recognizer.record(source)
+
+        text = recognizer.recognize_google(audio)
+
+        os.remove(audio_path)
+
+        return text
+
+    except Exception as e:
+        return f"Error: {e}"
+
+def ask_gemini(prompt):
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+
+    except Exception as e:
+        return f"Error: {e}"
+
+st.set_page_config(
+    page_title="Voice AI Assistant",
+    page_icon="🎙️",
+    layout="wide"
+)
+
+st.title("🎙️ AI Voice Assistant")
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+user_input = st.chat_input("Ask something...")
+
+if user_input:
+    st.session_state.messages.append(
+        {"role": "user", "content": user_input}
+    )
+
+    with st.chat_message("user"):
+        st.markdown(user_input)
+
+    response = ask_gemini(user_input)
+
+    st.session_state.messages.append(
+        {"role": "assistant", "content": response}
+    )
+
+    with st.chat_message("assistant"):
+        st.markdown(response)
+
+st.divider()
+
+if st.button("🎤 Speak"):
+    text = speech_to_text()
+
+    if text:
+        st.session_state.messages.append(
+            {"role": "user", "content": text}
+        )
+
+        with st.chat_message("user"):
+            st.markdown(text)
+
+        response = ask_gemini(text)
+
+        st.session_state.messages.append(
+            {"role": "assistant", "content": response}
+        )
+
+        with st.chat_message("assistant"):
+            st.markdown(response)
+
+        speak(response)
